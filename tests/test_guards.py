@@ -77,3 +77,16 @@ def test_hooks_block_escape_and_turn_key(cmd):
 def test_hooks_allow_normal_commands(cmd):
     from larkx.agent.hooks import check_tool_use
     assert check_tool_use('Bash', {'command': cmd}) is None
+
+
+@pytest.mark.parametrize('cmd', ['timeout 5 at now', 'nice -n 5 at now', 'bash -c "at now"', 'sh -lc "echo hi; systemd-run x"',
+                                 'eval "crontab -l"', 'timeout -s KILL 5s nice -n 3 at now', 'env FOO=1 at now'])
+def test_hooks_see_through_wrappers(cmd):
+    from larkx.agent.hooks import check_tool_use
+    assert check_tool_use('Bash', {'command': cmd})
+
+
+@pytest.mark.parametrize('cmd', ['bash -c "echo at now"', 'timeout 5 python3 x.py', 'nice -n 5 larkx chats'])
+def test_hooks_wrappers_allow_normal(cmd):
+    from larkx.agent.hooks import check_tool_use
+    assert check_tool_use('Bash', {'command': cmd}) is None
