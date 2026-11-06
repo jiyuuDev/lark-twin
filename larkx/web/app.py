@@ -192,7 +192,9 @@ def overview(request: Request):
         'session': {'id': sess.agent_session_id if sess else '', 'turns': sess.msg_count if sess else 0,
                     'last_active': sess.last_active if sess else None},
         # 不可信的轮次(升级窗口里旧 daemon 写的、被改过的)没有 started_at, 单独标出来
-        'turn': turn and dict(turn, elapsed=(time.time() - turn['started_at']) if turn.get('started_at') else None),
+        # 签名和锁定的配置不给网页: 只回显展示要用的字段
+        'turn': turn and dict({k: v for k, v in turn.items() if k not in ('sig', 'locked')},
+                              elapsed=(time.time() - turn['started_at']) if turn.get('started_at') else None),
         'inbox_pending': inbox_pending,
         'today': {'handled': handled_today, 'sent': st.count_actions('agent', ('send', 'forward'), today), 'denied': denied_today,
                   'messages': messages_today},

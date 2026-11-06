@@ -176,9 +176,14 @@ SENT_ACTIONS = ('send', 'forward')
 FORWARD_MAX = 50
 
 
+def _agent() -> bool:
+    """这个命令是不是数字人起的: 不只看 LARKX_ACTOR(env -u 去掉它也认得出, 见 inside_twin)。"""
+    return is_agent_actor() or inside_twin()
+
+
 def _audit(st, action, args_chat, content, msg_id='', ok=True, error=''):
-    turn = state.read_turn() if is_agent_actor() else None
-    st.log_action(actor='agent' if is_agent_actor() else 'human', action=action, chat_id=str(args_chat or ''),
+    turn = state.read_turn() if _agent() else None
+    st.log_action(actor='agent' if _agent() else 'human', action=action, chat_id=str(args_chat or ''),
                   msg_id=str(msg_id or ''), content=content, ok=1 if ok else 0, error=error,
                   turn_kind=(turn or {}).get('kind', ''), turn_ref=(turn or {}).get('ref', ''))
 
@@ -196,7 +201,7 @@ def cmd_send(args):
     cfg = load_config()
     prefix = (cfg.get('triggers') or {}).get('prefix') or ''
     st = Storage()
-    agent = is_agent_actor()
+    agent = _agent()
     turn = state.read_turn() if agent else None
     client = LarkClient(LarkAuth())
     # 防自回环的前缀检测按纯文本做, 不能让 markdown 格式把开头的触发前缀藏起来
@@ -304,7 +309,7 @@ def cmd_forward(args):
     merge = bool(getattr(args, 'merge', False))
     cfg = load_config()
     st = Storage()
-    agent = is_agent_actor()
+    agent = _agent()
     turn = state.read_turn() if agent else None
     client = LarkClient(LarkAuth())
     try:
@@ -424,7 +429,7 @@ def cmd_chats(args):
 
 def _owner_turn_denied() -> str:
     """数字人只有在本人发起的轮次里才能改分类(和监听任务一样)。"""
-    if not is_agent_actor():
+    if not _agent():
         return ''
     turn = state.read_turn()
     if turn and turn.get('is_owner') and turn.get('kind') in ('message', 'say'):
@@ -710,7 +715,7 @@ def _task_row(t) -> dict:
 def cmd_recall(args):
     st = Storage()
     sent = st.find_action('agent', SENT_ACTIONS, args.msg_id) or st.find_action('human', SENT_ACTIONS, args.msg_id)
-    if is_agent_actor():
+    if _agent():
         turn = state.read_turn()
         mine = st.find_action('agent', SENT_ACTIONS, args.msg_id)
         if not mine:
@@ -736,7 +741,7 @@ def cmd_recall(args):
 def cmd_takeover(args):
     import time
     st = Storage()
-    agent = is_agent_actor()
+    agent = _agent()
     turn = state.read_turn() if agent else None
     if args.action == 'list':
         rows = [{'chat_id': t.chat_id, 'chat_name': st.get_chat_name(t.chat_id),
@@ -774,8 +779,8 @@ def cmd_takeover(args):
 
 def cmd_rule(args):
     from .event_rules import RuleStore
-    turn=state.read_turn() if is_agent_actor() else None
-    if is_agent_actor() and not (turn and turn.get('is_owner') and turn.get('kind') in ('message','say')):
+    turn=state.read_turn() if _agent() else None
+    if _agent() and not (turn and turn.get('is_owner') and turn.get('kind') in ('message','say')):
         return _fail(args, '监听规则只能由本人在对话或终端中管理；事件任务和访客不能管理')
     store=RuleStore(Storage())
     try:
@@ -822,8 +827,11 @@ def cmd_mentions(args):
 
 def cmd_task(args):
     st = Storage()
-    agent = is_agent_actor()
+    agent = _agent()
     turn = state.read_turn() if agent else None
+    if agent and args.action != 'list' and (not turn or turn.get('untrusted')):
+        # 读不到这一轮或这一轮不可信: 不能建、取消任务(不带 --chat 时空的目标会话会正好对上不可信轮次的空会话)
+        return _fail(args, '当前这一轮读不到或不可信, 数字人不能建、取消任务', code=3)
     if args.action == 'list':
         rows = [_task_row(t) for t in st.list_tasks(include_finished=args.all)]
         if args.json:
@@ -1631,7 +1639,7 @@ def main():
     p.set_defaults(fn=cmd_doctor)
     # 在解析参数之前拦截, 参数写错时也不会绕过
     sub_cmd = next((a for a in sys.argv[1:] if not a.startswith('-')), None)
-    if is_agent_actor() and sub_cmd in AGENT_FORBIDDEN:
+    if sub_cmd in AGENT_FORBIDDEN and (is_agent_actor() or (sub_cmd not in SERVICE_CMDS and inside_twin())):
         sys.exit(_fail(argparse.Namespace(json='--json' in sys.argv), f'数字人不能使用 larkx {sub_cmd}', code=3))
     args, extra = parser.parse_known_args()
     if extra and args.cmd in ('send', 'task', 'say'):

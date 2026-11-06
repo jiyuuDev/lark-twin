@@ -495,3 +495,36 @@ def test_owner_user_id_reads_only_credentials(tmp_path):
     assert config.owner_user_id() == ''                                      # 测试里不读本机真实凭证
     config.CREDENTIALS_PATH.write_text(_json.dumps({'user_id': '555', 'cookies': {}}), encoding='utf-8')
     assert config.owner_user_id() == '555'
+
+
+def test_twin_without_actor_env_still_restricted(monkeypatch, tmp_path, fake_client):
+    """维护任务里数字人 env -u LARKX_ACTOR 再调 larkx send: 照样按数字人检查(维护任务不能发飞书消息)。"""
+    from larkx import cli as c
+    monkeypatch.delenv('LARKX_ACTOR', raising=False)
+    monkeypatch.setattr(c, 'inside_twin', lambda: True)
+    state.write_turn('system', 'self', ref='job:review#1')
+    monkeypatch.setattr(c, 'LarkClient', lambda auth: fake_client)
+    monkeypatch.setattr(c, 'LarkAuth', lambda: None)
+    monkeypatch.setattr(c, 'Storage', lambda: Storage(f'sqlite:///{tmp_path}/s.db'))
+    args = argparse.Namespace(chat_id='c1', text=['hi'], root=None, json=False, markdown=False, mention=[], stdin=False)
+    assert c.cmd_send(args) != 0 and not [x for x in fake_client.sent if x[0] == 'c1']
+
+
+def test_task_add_rejected_when_turn_untrusted(monkeypatch, tmp_path):
+    from larkx import cli as c
+    monkeypatch.setattr(c, 'inside_twin', lambda: True)
+    monkeypatch.setattr(c, 'Storage', lambda: Storage(f'sqlite:///{tmp_path}/t.db'))
+    state.STATE_DIR.mkdir(parents=True, exist_ok=True)
+    state.TURN_PATH.write_text('{"kind": "message", "chat_id": "", "is_owner": false}', encoding='utf-8')   # 没签名
+    args = argparse.Namespace(action='add', text=['提醒'], at=None, every=None, chat=None, json=False, all=False, **{'in': '1h'})
+    assert c.cmd_task(args) == 3
+
+
+def test_forbidden_cmd_without_actor_env(monkeypatch):
+    from larkx import cli as c
+    monkeypatch.delenv('LARKX_ACTOR', raising=False)
+    monkeypatch.setattr(c, 'inside_twin', lambda: True)
+    monkeypatch.setattr('sys.argv', ['larkx', 'prune', '--dry-run'])
+    with pytest.raises(SystemExit) as e:
+        c.main()
+    assert e.value.code == 3

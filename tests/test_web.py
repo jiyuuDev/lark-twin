@@ -119,3 +119,17 @@ def test_overview_with_untrusted_turn(client):
     assert r.status_code == 200
     t = r.json()['turn']
     assert t['untrusted'] and t['elapsed'] is None
+    assert 'sig' not in t and 'locked' not in t
+
+
+def test_overview_hides_turn_sig_and_locked(client):
+    """签名过的正常轮次: 总览也不回显 sig 和锁定的配置。"""
+    import os
+    from larkx import state
+    state.write_turn('message', 'c1', '', False, 'm1', locked={'organize': True})
+    data = state.TURN_PATH.read_text(encoding='utf-8')
+    assert '"sig"' in data
+    client.post('/login', json={'token': web.get_token()})
+    t = client.get('/api/overview').json()['turn']
+    assert t and not t.get('untrusted') and t['chat_id'] == 'c1'
+    assert 'sig' not in t and 'locked' not in t

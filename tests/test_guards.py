@@ -77,3 +77,21 @@ def test_hooks_block_escape_and_turn_key(cmd):
 def test_hooks_allow_normal_commands(cmd):
     from larkx.agent.hooks import check_tool_use
     assert check_tool_use('Bash', {'command': cmd}) is None
+
+
+@pytest.mark.parametrize('cmd', ['timeout 5 at now', 'nice -n 5 at now', 'bash -c "at now"', 'sh -lc "echo hi; systemd-run x"',
+                                 'eval "crontab -l"', 'timeout -s KILL 5s nice -n 3 at now', 'env FOO=1 at now',
+                                 'bash --color -c "at now"', 'bash -o pipefail -c "at now"', 'sudo -i at now',
+                                 'sudo -u root -i crontab -l', 'flock /tmp/l -c "at now"', 'flock -w 3 /tmp/l at now',
+                                 'env -S "at now"', 'taskset -c 0-3 at now', 'chrt 5 at now', 'xargs -I {} at now'])
+def test_hooks_see_through_wrappers(cmd):
+    from larkx.agent.hooks import check_tool_use
+    assert check_tool_use('Bash', {'command': cmd})
+
+
+@pytest.mark.parametrize('cmd', ['bash -c "echo at now"', 'timeout 5 python3 x.py', 'nice -n 5 larkx chats',
+                                 'sudo -i larkx chats', 'flock /tmp/l -c "echo at"', 'bash --norc x.sh at',
+                                 'flock /tmp/l larkx send c1 "用 crontab 定时"'])
+def test_hooks_wrappers_allow_normal(cmd):
+    from larkx.agent.hooks import check_tool_use
+    assert check_tool_use('Bash', {'command': cmd}) is None
